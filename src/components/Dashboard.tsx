@@ -466,51 +466,95 @@ export default function Dashboard() {
             >
               Disconnect QBO
             </button>
-          ) : status?.qboConfigured ? (
-            <a
-              href="/api/auth/connect"
-              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-ink-soft"
-            >
-              Connect QuickBooks
-            </a>
-          ) : (
-            <button
-              onClick={() => setShowSetup(true)}
-              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-ink-soft"
-            >
-              Add credentials
-            </button>
-          )}
+          ) : null}
           <button
             onClick={() => void logout()}
             className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white"
           >
             Log out
           </button>
-          <button
-            onClick={() => void trainFromHistory()}
-            disabled={busy === "train" || (!status?.connected && !status?.demoMode)}
-            className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white disabled:opacity-40"
-          >
-            {busy === "train" ? "Training…" : "Train on past entries"}
-          </button>
-          <button
-            onClick={() => void runMorning()}
-            disabled={busy === "morning" || (!status?.connected && !status?.demoMode)}
-            className="rounded-md bg-sage px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-sage-bright disabled:opacity-40"
-          >
-            {busy === "morning" ? "Running…" : "Run morning job"}
-          </button>
+          {status?.connected || status?.demoMode ? (
+            <>
+              <button
+                onClick={() => void trainFromHistory()}
+                disabled={busy === "train"}
+                className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white disabled:opacity-40"
+              >
+                {busy === "train" ? "Training…" : "Train on past entries"}
+              </button>
+              <button
+                onClick={() => void runMorning()}
+                disabled={busy === "morning"}
+                className="rounded-md bg-sage px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sage-bright disabled:opacity-40"
+              >
+                {busy === "morning" ? "Running…" : "Run morning job"}
+              </button>
+            </>
+          ) : null}
         </div>
       </header>
 
-      {showSetup && !status?.connected ? (
+      {!status?.connected && !status?.demoMode ? (
+        <section className="surface mb-8 rounded-xl p-6 md:p-8">
+          <p className="mb-2 text-xs font-semibold tracking-[0.18em] text-sage uppercase">
+            Next step
+          </p>
+          <h2 className="font-[family-name:var(--font-display)] text-3xl tracking-tight">
+            {status?.qboConfigured
+              ? "Authorize QuickBooks Online"
+              : "Add your Intuit credentials"}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm text-ink-soft/80">
+            {status?.qboConfigured
+              ? "Credentials are loaded. Click below to sign in with Intuit and approve access for your company."
+              : "Paste your Intuit Client ID and Client Secret, then authorize QuickBooks."}
+          </p>
+          {status?.qboConfigured ? (
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <a
+                href="/api/auth/connect"
+                className="inline-flex rounded-md bg-[#0d2a2e] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1d4348]"
+              >
+                Connect QuickBooks
+              </a>
+              <button
+                onClick={() => setShowSetup(true)}
+                className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-3 text-sm font-medium hover:bg-white"
+              >
+                Edit credentials
+              </button>
+            </div>
+          ) : (
+            <div className="mt-5">
+              <button
+                onClick={() => setShowSetup(true)}
+                className="inline-flex rounded-md bg-[#0d2a2e] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1d4348]"
+              >
+                Add credentials
+              </button>
+            </div>
+          )}
+          {status?.redirectUri ? (
+            <p className="mt-4 text-xs text-ink-soft/70">
+              Intuit Redirect URI must be:{" "}
+              <code className="rounded bg-white/70 px-1.5 py-0.5">
+                {status.redirectUri}
+              </code>
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {(showSetup || (!status?.qboConfigured && !status?.connected)) &&
+      !status?.connected ? (
         <div className="mb-8">
           <CredentialsForm
             redirectUri={status?.redirectUri}
             environment={status?.environment}
             onSaved={() => {
-              setMessage("Credentials saved. Add the Redirect URI in Intuit, then connect QuickBooks.");
+              setMessage(
+                "Credentials saved. Click Connect QuickBooks to authorize your company.",
+              );
               setShowSetup(false);
               void refresh();
             }}
@@ -534,7 +578,7 @@ export default function Dashboard() {
             status?.connected
               ? `Company ${status.realmId}`
               : status?.qboConfigured
-                ? `${status.environment} credentials loaded — click Connect QuickBooks`
+                ? `${status.environment} credentials loaded`
                 : "Add Intuit app credentials"
           }
         />
@@ -563,7 +607,7 @@ export default function Dashboard() {
         />
       </section>
 
-      {(message || error) && (
+      {(message || error) && status?.connected ? (
         <div
           className={`mb-5 rounded-md border px-4 py-3 text-sm ${
             error
@@ -573,7 +617,7 @@ export default function Dashboard() {
         >
           {error ?? message}
         </div>
-      )}
+      ) : null}
 
       <nav className="mb-4 flex flex-wrap gap-2">
         {(
