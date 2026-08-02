@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import CredentialsForm from "@/components/CredentialsForm";
 
 type AuthStatus = {
   connected: boolean;
@@ -8,6 +9,8 @@ type AuthStatus = {
   qboConfigured: boolean;
   demoMode: boolean;
   environment: string;
+  redirectUri?: string;
+  baseUrl?: string;
 };
 
 type Transaction = {
@@ -134,6 +137,7 @@ export default function Dashboard() {
   const [tab, setTab] = useState<
     "transactions" | "morning" | "training" | "pnl" | "rules"
   >("transactions");
+  const [showSetup, setShowSetup] = useState(false);
 
   const suggestionMap = useMemo(() => {
     const map = new Map<string, Suggestion>();
@@ -191,8 +195,17 @@ export default function Dashboard() {
     if (params.get("error")) {
       setError(params.get("error"));
     }
+    if (params.get("setup") === "1") {
+      setShowSetup(true);
+    }
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (status && !status.qboConfigured && !status.connected) {
+      setShowSetup(true);
+    }
+  }, [status]);
 
   async function runCategorize() {
     setBusy("categorize");
@@ -422,7 +435,14 @@ export default function Dashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {status?.connected ? (
+          {!status?.qboConfigured ? (
+            <button
+              onClick={() => setShowSetup(true)}
+              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-ink-soft"
+            >
+              Add credentials
+            </button>
+          ) : status?.connected ? (
             <button
               onClick={() => void disconnect()}
               disabled={busy === "disconnect"}
@@ -439,21 +459,41 @@ export default function Dashboard() {
             </a>
           )}
           <button
-            onClick={() => void trainFromHistory()}
-            disabled={busy === "train"}
+            onClick={() => setShowSetup(true)}
             className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white"
+          >
+            Credentials
+          </button>
+          <button
+            onClick={() => void trainFromHistory()}
+            disabled={busy === "train" || (!status?.connected && !status?.demoMode)}
+            className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white disabled:opacity-40"
           >
             {busy === "train" ? "Training…" : "Train on past entries"}
           </button>
           <button
             onClick={() => void runMorning()}
-            disabled={busy === "morning"}
-            className="rounded-md bg-sage px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-sage-bright"
+            disabled={busy === "morning" || (!status?.connected && !status?.demoMode)}
+            className="rounded-md bg-sage px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-sage-bright disabled:opacity-40"
           >
             {busy === "morning" ? "Running…" : "Run morning job"}
           </button>
         </div>
       </header>
+
+      {showSetup && !status?.connected ? (
+        <div className="mb-8">
+          <CredentialsForm
+            redirectUri={status?.redirectUri}
+            environment={status?.environment}
+            onSaved={() => {
+              setMessage("Credentials saved. Add the Redirect URI in Intuit, then connect QuickBooks.");
+              setShowSetup(false);
+              void refresh();
+            }}
+          />
+        </div>
+      ) : null}
 
       <section className="animate-rise-delay mb-6 grid gap-3 md:grid-cols-4">
         <Stat
@@ -1042,13 +1082,10 @@ export default function Dashboard() {
       )}
 
       <footer className="mt-10 text-sm text-ink-soft/65">
-        QuickBooks Online uses OAuth (not username/password). Create an Intuit
-        Developer app, set{" "}
-        <code className="rounded bg-white/60 px-1">QBO_CLIENT_ID</code> /{" "}
-        <code className="rounded bg-white/60 px-1">QBO_CLIENT_SECRET</code>,
-        connect once, then schedule the morning job with{" "}
-        <code className="rounded bg-white/60 px-1">CRON_SECRET</code>. Demo mode
-        works without credentials.
+        Paste your Intuit Client ID / Secret on the credentials screen, add the
+        shown Redirect URI in your Intuit app, then click{" "}
+        <strong>Connect QuickBooks</strong>. On Vercel, morning runs via the
+        scheduled cron job.
       </footer>
     </main>
   );

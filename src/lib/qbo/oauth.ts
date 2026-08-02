@@ -10,11 +10,11 @@ import {
 } from "@/lib/storage/store";
 import type { TokenSet } from "@/lib/qbo/types";
 
-export async function createAuthorizationUrl(): Promise<string> {
-  const config = getConfig();
+export async function createAuthorizationUrl(baseUrl?: string): Promise<string> {
+  const config = await getConfig({ baseUrl });
   if (!config.qboConfigured) {
     throw new Error(
-      "QuickBooks credentials are not configured. Set QBO_CLIENT_ID and QBO_CLIENT_SECRET.",
+      "QuickBooks credentials are not configured. Enter your Client ID and Secret on the login screen.",
     );
   }
 
@@ -32,8 +32,11 @@ export async function createAuthorizationUrl(): Promise<string> {
   return `${config.authBaseUrl}?${params.toString()}`;
 }
 
-async function exchangeToken(body: URLSearchParams): Promise<TokenSet & { refresh_token?: string }> {
-  const config = getConfig();
+async function exchangeToken(
+  body: URLSearchParams,
+  baseUrl?: string,
+): Promise<TokenSet & { refresh_token?: string }> {
+  const config = await getConfig({ baseUrl });
   const basic = Buffer.from(
     `${config.QBO_CLIENT_ID}:${config.QBO_CLIENT_SECRET}`,
   ).toString("base64");
@@ -74,18 +77,21 @@ export async function handleOAuthCallback(params: {
   code: string;
   state: string;
   realmId: string;
+  baseUrl?: string;
 }): Promise<TokenSet> {
   const savedState = await getOAuthState();
   if (!savedState || savedState !== params.state) {
     throw new Error("Invalid OAuth state. Please try connecting again.");
   }
 
+  const config = await getConfig({ baseUrl: params.baseUrl });
   const tokens = await exchangeToken(
     new URLSearchParams({
       grant_type: "authorization_code",
       code: params.code,
-      redirect_uri: getConfig().QBO_REDIRECT_URI,
+      redirect_uri: config.QBO_REDIRECT_URI,
     }),
+    params.baseUrl,
   );
 
   const saved: TokenSet = {

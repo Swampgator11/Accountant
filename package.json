@@ -12,6 +12,8 @@
     "morning": "bash scripts/morning-run.sh"
   },
   "dependencies": {
+    "@vercel/blob": "^2.6.1",
+    "jose": "^6.2.7",
     "next": "15.5.21",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -27,6 +29,7 @@
     "eslint-config-next": "15.5.21",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vercel": "^58.4.4",
     "vitest": "^4.1.10"
   }
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleOAuthCallback } from "@/lib/qbo/oauth";
-import { getConfig } from "@/lib/config";
+import { baseUrlFromRequest } from "@/lib/config";
 
 export async function GET(request: NextRequest) {
-  const config = getConfig();
+  const baseUrl = baseUrlFromRequest(request);
   const params = request.nextUrl.searchParams;
   const code = params.get("code");
   const state = params.get("state");
@@ -12,23 +12,23 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      `${config.APP_BASE_URL}/?error=${encodeURIComponent(error)}`,
+      `${baseUrl}/?error=${encodeURIComponent(error)}`,
     );
   }
 
   if (!code || !state || !realmId) {
     return NextResponse.redirect(
-      `${config.APP_BASE_URL}/?error=${encodeURIComponent("Missing OAuth parameters")}`,
+      `${baseUrl}/?error=${encodeURIComponent("Missing OAuth parameters")}`,
     );
   }
 
   try {
-    await handleOAuthCallback({ code, state, realmId });
-    return NextResponse.redirect(`${config.APP_BASE_URL}/?connected=1`);
+    await handleOAuthCallback({ code, state, realmId, baseUrl });
+    return NextResponse.redirect(`${baseUrl}/?connected=1`);
   } catch (err) {
     const message = err instanceof Error ? err.message : "OAuth failed";
     return NextResponse.redirect(
-      `${config.APP_BASE_URL}/?error=${encodeURIComponent(message)}`,
+      `${baseUrl}/?error=${encodeURIComponent(message)}`,
     );
   }
 }

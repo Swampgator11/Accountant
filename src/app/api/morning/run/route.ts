@@ -6,30 +6,31 @@ import {
 import { getConfig } from "@/lib/config";
 import { getMorningSettings } from "@/lib/storage/store";
 
-/**
- * Cron / webhook entrypoint for the daily morning categorization.
- * Protect with CRON_SECRET:
- *   curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
- *     http://localhost:3000/api/morning/run
- */
-export async function POST(request: NextRequest) {
+async function handle(request: NextRequest) {
   try {
-    const config = getConfig();
+    const config = await getConfig();
     const auth = request.headers.get("authorization") ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const querySecret = request.nextUrl.searchParams.get("secret") ?? "";
+    // Vercel Cron sends this header automatically.
+    const cronHeader = request.headers.get("x-vercel-cron");
 
-    if (!config.CRON_SECRET) {
+    if (!config.CRON_SECRET && !cronHeader) {
       return NextResponse.json(
         {
           error:
-            "CRON_SECRET is not configured. Set it in .env.local before scheduling the morning job.",
+            "CRON_SECRET is not configured. Set it in the Vercel project env before scheduling the morning job.",
         },
         { status: 503 },
       );
     }
 
-    if (token !== config.CRON_SECRET && querySecret !== config.CRON_SECRET) {
+    const authorized =
+      Boolean(cronHeader) ||
+      (Boolean(config.CRON_SECRET) &&
+        (token === config.CRON_SECRET || querySecret === config.CRON_SECRET));
+
+    if (!authorized) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -56,4 +57,13 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+/** Vercel Cron uses GET. */
+export async function GET(request: NextRequest) {
+  return handle(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handle(request);
 }

@@ -27,7 +27,7 @@ async function qboFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const config = getConfig();
+  const config = await getConfig();
   const url = `${config.apiBaseUrl}/v3/company/${tokens.realmId}${path}${
     path.includes("?") ? "&" : "?"
   }minorversion=75`;
@@ -54,7 +54,7 @@ export async function requireConnection(): Promise<
   | { mode: "demo" }
   | { mode: "live"; tokens: TokenSet }
 > {
-  const config = getConfig();
+  const config = await getConfig();
   const tokens = await getValidTokens();
   if (tokens) return { mode: "live", tokens };
   if (config.DEMO_MODE) return { mode: "demo" };

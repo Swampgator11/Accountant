@@ -17,7 +17,7 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const config = getConfig();
+    const config = await getConfig();
     const json = await request.json();
     const body = bodySchema.parse(json);
     const transactions = await listTransactions();
