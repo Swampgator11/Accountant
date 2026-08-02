@@ -363,6 +363,11 @@ export default function Dashboard() {
     await refresh();
   }
 
+  async function logout() {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
   async function saveRules() {
     setBusy("rules");
     try {
@@ -448,7 +453,7 @@ export default function Dashboard() {
               disabled={busy === "disconnect"}
               className="rounded-md border border-[var(--line)] bg-white/60 px-4 py-2.5 text-sm font-medium hover:bg-white"
             >
-              Disconnect
+              Disconnect QBO
             </button>
           ) : (
             <a
@@ -459,10 +464,10 @@ export default function Dashboard() {
             </a>
           )}
           <button
-            onClick={() => setShowSetup(true)}
+            onClick={() => void logout()}
             className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white"
           >
-            Credentials
+            Log out
           </button>
           <button
             onClick={() => void trainFromHistory()}
