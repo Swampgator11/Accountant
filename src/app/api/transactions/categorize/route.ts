@@ -4,12 +4,18 @@ import {
   createDefaultRules,
   suggestCategories,
 } from "@/lib/categorization/engine";
-import { getRules, saveRules } from "@/lib/storage/store";
+import { trainFromHistory } from "@/lib/categorization/trainer";
+import {
+  getRules,
+  getTrainingModel,
+  saveRules,
+  saveTrainingModel,
+} from "@/lib/storage/store";
 
 export async function POST() {
   try {
-    const [transactions, accounts] = await Promise.all([
-      listTransactions({ uncategorizedOnly: true }),
+    const [allTransactions, accounts] = await Promise.all([
+      listTransactions({ startDate: "2023-01-01" }),
       listExpenseAccounts(),
     ]);
 
@@ -19,12 +25,26 @@ export async function POST() {
       await saveRules(rules);
     }
 
-    const suggestions = suggestCategories(transactions, rules, accounts);
+    let model = await getTrainingModel();
+    if (!model) {
+      const history = allTransactions.filter((t) => !t.isUncategorized);
+      model = trainFromHistory(history);
+      await saveTrainingModel(model);
+    }
+
+    const transactions = allTransactions.filter((t) => t.isUncategorized);
+    const suggestions = suggestCategories(
+      transactions,
+      rules,
+      accounts,
+      model,
+    );
     return NextResponse.json({
       suggestions,
       transactionCount: transactions.length,
       suggestionCount: suggestions.length,
       rulesUsed: rules.filter((r) => r.enabled).length,
+      trainingPatterns: model.patternCount,
     });
   } catch (error) {
     return NextResponse.json(

@@ -81,6 +81,7 @@ export type CategorySuggestion = {
   ruleId: string | null;
   ruleLabel: string | null;
   reason: string;
+  source?: "training" | "rule" | "heuristic";
 };
 
 export type CategorizationRule = {
@@ -92,6 +93,55 @@ export type CategorizationRule = {
   accountName: string;
   priority: number;
   enabled: boolean;
+};
+
+/** Learned merchant/description → account mapping from past categorized books. */
+export type TrainingPattern = {
+  id: string;
+  kind: "vendor" | "description";
+  /** Normalized match key (lowercased, stripped) */
+  key: string;
+  displayKey: string;
+  accountId: string;
+  accountName: string;
+  /** How many historical categorized txns voted for this mapping */
+  support: number;
+  /** support / total observations for this key */
+  confidence: number;
+};
+
+export type TrainingModel = {
+  trainedAt: string;
+  historyStartDate: string;
+  historyEndDate: string;
+  categorizedCount: number;
+  patternCount: number;
+  patterns: TrainingPattern[];
+};
+
+export type MorningSettings = {
+  enabled: boolean;
+  /** Local hour 0–23 when the morning job should run (informational for cron docs) */
+  hourLocal: number;
+  timezone: string;
+  /** Only auto-write categories at or above this confidence (0–1) */
+  minConfidence: number;
+  /** If false, morning run only suggests; if true, writes to QBO */
+  autoApply: boolean;
+  lastRunAt: string | null;
+};
+
+export type MorningRunResult = {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  trained: boolean;
+  uncategorizedCount: number;
+  suggestedCount: number;
+  appliedCount: number;
+  skippedLowConfidence: number;
+  errors: string[];
+  suggestions: CategorySuggestion[];
 };
 
 export type TokenSet = {

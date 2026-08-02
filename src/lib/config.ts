@@ -10,6 +10,8 @@ const envSchema = z.object({
   QBO_ENVIRONMENT: z.enum(["sandbox", "production"]).optional().default("sandbox"),
   DEMO_MODE: z.string().optional().default("true"),
   APP_BASE_URL: z.string().optional().default("http://localhost:3000"),
+  /** Shared secret for cron/morning webhook calls (Authorization: Bearer …) */
+  CRON_SECRET: z.string().optional().default(""),
 });
 
 export type AppConfig = Omit<z.infer<typeof envSchema>, "DEMO_MODE"> & {
@@ -29,6 +31,7 @@ export function getConfig(): AppConfig {
     QBO_ENVIRONMENT: process.env.QBO_ENVIRONMENT,
     DEMO_MODE: process.env.DEMO_MODE ?? "true",
     APP_BASE_URL: process.env.APP_BASE_URL,
+    CRON_SECRET: process.env.CRON_SECRET,
   });
 
   const isSandbox = parsed.QBO_ENVIRONMENT === "sandbox";

@@ -28,6 +28,7 @@ type Suggestion = {
   confidence: number;
   ruleLabel: string | null;
   reason: string;
+  source?: "training" | "rule" | "heuristic";
 };
 
 type Rule = {
@@ -39,6 +40,43 @@ type Rule = {
   accountName: string;
   priority: number;
   enabled: boolean;
+};
+
+type TrainingModel = {
+  trainedAt: string;
+  historyStartDate: string;
+  historyEndDate: string;
+  categorizedCount: number;
+  patternCount: number;
+  patterns: Array<{
+    id: string;
+    kind: "vendor" | "description";
+    displayKey: string;
+    accountName: string;
+    support: number;
+    confidence: number;
+  }>;
+};
+
+type MorningSettings = {
+  enabled: boolean;
+  hourLocal: number;
+  timezone: string;
+  minConfidence: number;
+  autoApply: boolean;
+  lastRunAt: string | null;
+};
+
+type MorningRun = {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  trained: boolean;
+  uncategorizedCount: number;
+  suggestedCount: number;
+  appliedCount: number;
+  skippedLowConfidence: number;
+  errors: string[];
 };
 
 type PnLReport = {
@@ -66,12 +104,25 @@ function monthLabel(year: number, month: number) {
   });
 }
 
+function formatWhen(iso: string | null | undefined) {
+  if (!iso) return "Never";
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default function Dashboard() {
   const now = new Date();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [model, setModel] = useState<TrainingModel | null>(null);
+  const [morning, setMorning] = useState<MorningSettings | null>(null);
+  const [runs, setRuns] = useState<MorningRun[]>([]);
   const [report, setReport] = useState<PnLReport | null>(null);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -80,9 +131,9 @@ export default function Dashboard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"transactions" | "pnl" | "rules">(
-    "transactions",
-  );
+  const [tab, setTab] = useState<
+    "transactions" | "morning" | "training" | "pnl" | "rules"
+  >("transactions");
 
   const suggestionMap = useMemo(() => {
     const map = new Map<string, Suggestion>();
@@ -94,27 +145,37 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [statusRes, txnRes, rulesRes, pnlRes] = await Promise.all([
-        fetch("/api/auth/status"),
-        fetch("/api/transactions?uncategorized=1"),
-        fetch("/api/rules"),
-        fetch(`/api/reports/pnl?year=${year}&month=${month}`),
-      ]);
+      const [statusRes, txnRes, rulesRes, pnlRes, trainRes, morningRes] =
+        await Promise.all([
+          fetch("/api/auth/status"),
+          fetch("/api/transactions?uncategorized=1"),
+          fetch("/api/rules"),
+          fetch(`/api/reports/pnl?year=${year}&month=${month}`),
+          fetch("/api/training"),
+          fetch("/api/morning"),
+        ]);
 
       const statusJson = await statusRes.json();
       const txnJson = await txnRes.json();
       const rulesJson = await rulesRes.json();
       const pnlJson = await pnlRes.json();
+      const trainJson = await trainRes.json();
+      const morningJson = await morningRes.json();
 
       if (!statusRes.ok) throw new Error(statusJson.error ?? "Status failed");
       if (!txnRes.ok) throw new Error(txnJson.error ?? "Transactions failed");
       if (!rulesRes.ok) throw new Error(rulesJson.error ?? "Rules failed");
       if (!pnlRes.ok) throw new Error(pnlJson.error ?? "P&L failed");
+      if (!trainRes.ok) throw new Error(trainJson.error ?? "Training failed");
+      if (!morningRes.ok) throw new Error(morningJson.error ?? "Morning failed");
 
       setStatus(statusJson);
       setTransactions(txnJson.transactions ?? []);
       setRules(rulesJson.rules ?? []);
       setReport(pnlJson.report ?? null);
+      setModel(trainJson.model ?? null);
+      setMorning(morningJson.settings ?? null);
+      setRuns(morningJson.runs ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
@@ -125,7 +186,7 @@ export default function Dashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("connected") === "1") {
-      setMessage("QuickBooks Online connected.");
+      setMessage("QuickBooks Online connected. Train on past entries, then enable the morning job.");
     }
     if (params.get("error")) {
       setError(params.get("error"));
@@ -147,11 +208,84 @@ export default function Dashboard() {
       }
       setSelected(next);
       setMessage(
-        `Suggested categories for ${json.suggestionCount} of ${json.transactionCount} uncategorized transactions.`,
+        `Suggested categories for ${json.suggestionCount} of ${json.transactionCount} uncategorized transactions${
+          json.trainingPatterns
+            ? ` using ${json.trainingPatterns} learned patterns`
+            : ""
+        }.`,
       );
       setTab("transactions");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Categorization failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function trainFromHistory() {
+    setBusy("train");
+    setError(null);
+    try {
+      const res = await fetch("/api/training", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Training failed");
+      setModel(json.model);
+      setMessage(json.message ?? "Training complete.");
+      setTab("training");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Training failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runMorning() {
+    setBusy("morning");
+    setError(null);
+    try {
+      const res = await fetch("/api/morning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retrain: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Morning job failed");
+      const result = json.result as MorningRun;
+      setSuggestions(json.result?.suggestions ?? []);
+      setMessage(
+        `Morning run finished: ${result.suggestedCount} suggested, ${result.appliedCount} applied, ${result.skippedLowConfidence} skipped (low confidence).`,
+      );
+      await refresh();
+      setTab("morning");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Morning job failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveMorning() {
+    if (!morning) return;
+    setBusy("morning-save");
+    setError(null);
+    try {
+      const res = await fetch("/api/morning", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: morning.enabled,
+          hourLocal: morning.hourLocal,
+          timezone: morning.timezone,
+          minConfidence: morning.minConfidence,
+          autoApply: morning.autoApply,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      setMorning(json.settings);
+      setMessage("Morning settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setBusy(null);
     }
@@ -274,17 +408,16 @@ export default function Dashboard() {
       <header className="animate-rise mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="mb-2 text-xs font-semibold tracking-[0.22em] text-sage uppercase">
-            Books that keep themselves
+            Morning books, trained on yours
           </p>
-          <h1
-            className="font-[family-name:var(--font-display)] text-5xl leading-none tracking-tight text-ink md:text-6xl"
-          >
+          <h1 className="font-[family-name:var(--font-display)] text-5xl leading-none tracking-tight text-ink md:text-6xl">
             Accountant
           </h1>
           <div className="brand-underline mt-3 h-1 w-40 rounded-full bg-sage" />
           <p className="mt-4 max-w-xl text-base text-ink-soft/80">
-            Connect QuickBooks Online, auto-categorize bank activity with rules,
-            and pull a clean monthly profit &amp; loss.
+            Connect your QuickBooks Online company, learn categories from past
+            entries, and auto-categorize what QuickBooks leaves behind each
+            morning.
           </p>
         </div>
 
@@ -306,16 +439,23 @@ export default function Dashboard() {
             </a>
           )}
           <button
-            onClick={() => void runCategorize()}
-            disabled={busy === "categorize"}
+            onClick={() => void trainFromHistory()}
+            disabled={busy === "train"}
+            className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-medium hover:bg-white"
+          >
+            {busy === "train" ? "Training…" : "Train on past entries"}
+          </button>
+          <button
+            onClick={() => void runMorning()}
+            disabled={busy === "morning"}
             className="rounded-md bg-sage px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-sage-bright"
           >
-            {busy === "categorize" ? "Categorizing…" : "Auto-categorize"}
+            {busy === "morning" ? "Running…" : "Run morning job"}
           </button>
         </div>
       </header>
 
-      <section className="animate-rise-delay mb-6 grid gap-3 md:grid-cols-3">
+      <section className="animate-rise-delay mb-6 grid gap-3 md:grid-cols-4">
         <Stat
           label="Connection"
           value={
@@ -336,12 +476,25 @@ export default function Dashboard() {
         <Stat
           label="Uncategorized"
           value={String(transactions.length)}
-          detail="Ready for review"
+          detail="Left by QuickBooks"
         />
         <Stat
-          label={monthLabel(year, month)}
-          value={report ? money(report.netIncome, report.currency) : "—"}
-          detail="Net income"
+          label="Training"
+          value={model ? String(model.patternCount) : "—"}
+          detail={
+            model
+              ? `${model.categorizedCount} past entries`
+              : "Train to learn your books"
+          }
+        />
+        <Stat
+          label="Last morning run"
+          value={formatWhen(morning?.lastRunAt)}
+          detail={
+            morning?.enabled
+              ? `Auto-apply ≥ ${Math.round((morning?.minConfidence ?? 0.8) * 100)}%`
+              : "Morning job disabled"
+          }
         />
       </section>
 
@@ -357,10 +510,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      <nav className="mb-4 flex gap-2">
+      <nav className="mb-4 flex flex-wrap gap-2">
         {(
           [
             ["transactions", "Transactions"],
+            ["morning", "Morning job"],
+            ["training", "Training"],
             ["pnl", "Monthly P&L"],
             ["rules", "Rules"],
           ] as const
@@ -391,16 +546,26 @@ export default function Dashboard() {
                 Uncategorized activity
               </h2>
               <p className="text-sm text-ink-soft/75">
-                Review suggestions, then apply them to QuickBooks.
+                Suggestions prefer learned history, then your rules, then
+                heuristics.
               </p>
             </div>
-            <button
-              onClick={() => void applySelected()}
-              disabled={busy === "apply" || suggestions.length === 0}
-              className="rounded-md bg-copper px-4 py-2 text-sm font-semibold text-paper disabled:opacity-40"
-            >
-              {busy === "apply" ? "Applying…" : "Apply selected"}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => void runCategorize()}
+                disabled={busy === "categorize"}
+                className="rounded-md border border-[var(--line)] bg-white/70 px-4 py-2 text-sm font-medium"
+              >
+                {busy === "categorize" ? "Categorizing…" : "Suggest categories"}
+              </button>
+              <button
+                onClick={() => void applySelected()}
+                disabled={busy === "apply" || suggestions.length === 0}
+                className="rounded-md bg-copper px-4 py-2 text-sm font-semibold text-paper disabled:opacity-40"
+              >
+                {busy === "apply" ? "Applying…" : "Apply selected"}
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -470,12 +635,13 @@ export default function Dashboard() {
                               </div>
                               <div className="text-xs text-ink-soft/70">
                                 {Math.round(suggestion.confidence * 100)}% ·{" "}
+                                {suggestion.source ?? "rule"} ·{" "}
                                 {suggestion.reason}
                               </div>
                             </div>
                           ) : (
                             <span className="text-ink-soft/60">
-                              Run auto-categorize
+                              Suggest or run morning job
                             </span>
                           )}
                         </td>
@@ -486,6 +652,232 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+        </section>
+      ) : tab === "morning" && morning ? (
+        <section className="surface rounded-xl p-5 md:p-6">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-[family-name:var(--font-display)] text-2xl">
+                Morning categorization
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-soft/75">
+                Each morning the app retrains on your categorized history, finds
+                entries QuickBooks left uncategorized, and writes high-confidence
+                categories back to your company.
+              </p>
+            </div>
+            <button
+              onClick={() => void runMorning()}
+              disabled={busy === "morning"}
+              className="rounded-md bg-sage px-4 py-2 text-sm font-semibold text-paper"
+            >
+              {busy === "morning" ? "Running…" : "Run now"}
+            </button>
+          </div>
+
+          <div className="mb-6 grid gap-3 md:grid-cols-2">
+            <label className="flex items-center gap-3 rounded-lg border border-[var(--line)] bg-white/50 px-4 py-3 text-sm">
+              <input
+                type="checkbox"
+                checked={morning.enabled}
+                onChange={(e) =>
+                  setMorning({ ...morning, enabled: e.target.checked })
+                }
+              />
+              Enable morning job
+            </label>
+            <label className="flex items-center gap-3 rounded-lg border border-[var(--line)] bg-white/50 px-4 py-3 text-sm">
+              <input
+                type="checkbox"
+                checked={morning.autoApply}
+                onChange={(e) =>
+                  setMorning({ ...morning, autoApply: e.target.checked })
+                }
+              />
+              Auto-apply to QuickBooks
+            </label>
+            <label className="grid gap-1 text-sm">
+              <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">
+                Local hour (for cron docs)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={morning.hourLocal}
+                onChange={(e) =>
+                  setMorning({
+                    ...morning,
+                    hourLocal: Number(e.target.value),
+                  })
+                }
+                className="rounded-md border border-[var(--line)] bg-white/70 px-3 py-2"
+              />
+            </label>
+            <label className="grid gap-1 text-sm">
+              <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">
+                Timezone
+              </span>
+              <input
+                value={morning.timezone}
+                onChange={(e) =>
+                  setMorning({ ...morning, timezone: e.target.value })
+                }
+                className="rounded-md border border-[var(--line)] bg-white/70 px-3 py-2"
+                placeholder="America/Chicago"
+              />
+            </label>
+            <label className="grid gap-1 text-sm md:col-span-2">
+              <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">
+                Minimum confidence to auto-apply (
+                {Math.round(morning.minConfidence * 100)}%)
+              </span>
+              <input
+                type="range"
+                min={0.5}
+                max={0.98}
+                step={0.01}
+                value={morning.minConfidence}
+                onChange={(e) =>
+                  setMorning({
+                    ...morning,
+                    minConfidence: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+          </div>
+
+          <button
+            onClick={() => void saveMorning()}
+            disabled={busy === "morning-save"}
+            className="mb-8 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-paper"
+          >
+            {busy === "morning-save" ? "Saving…" : "Save settings"}
+          </button>
+
+          <div className="mb-4 rounded-lg border border-[var(--line)] bg-white/40 p-4 text-sm text-ink-soft">
+            <div className="font-medium text-ink">Schedule with cron</div>
+            <p className="mt-1">
+              Keep the app running, set <code>CRON_SECRET</code> in{" "}
+              <code>.env.local</code>, then schedule:
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded-md bg-ink px-3 py-3 text-xs text-paper">
+{`0 ${morning.hourLocal} * * * curl -X POST -H "Authorization: Bearer $CRON_SECRET" \\
+  $APP_BASE_URL/api/morning/run`}
+            </pre>
+            <p className="mt-2 text-xs">
+              Or use <code>scripts/morning-run.sh</code> from this repo.
+            </p>
+          </div>
+
+          <h3 className="mb-2 font-[family-name:var(--font-display)] text-xl">
+            Recent runs
+          </h3>
+          {runs.length === 0 ? (
+            <p className="text-sm text-ink-soft/70">No morning runs yet.</p>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-[var(--line)]">
+              <table className="min-w-full text-sm">
+                <thead className="bg-paper-deep/60 text-xs tracking-wide text-ink-soft uppercase">
+                  <tr>
+                    <th className="px-4 py-3 text-left">When</th>
+                    <th className="px-4 py-3 text-left">Uncategorized</th>
+                    <th className="px-4 py-3 text-left">Suggested</th>
+                    <th className="px-4 py-3 text-left">Applied</th>
+                    <th className="px-4 py-3 text-left">Skipped</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((run) => (
+                    <tr
+                      key={run.id}
+                      className="border-t border-[var(--line)]"
+                    >
+                      <td className="px-4 py-3">{formatWhen(run.startedAt)}</td>
+                      <td className="px-4 py-3">{run.uncategorizedCount}</td>
+                      <td className="px-4 py-3">{run.suggestedCount}</td>
+                      <td className="px-4 py-3">{run.appliedCount}</td>
+                      <td className="px-4 py-3">{run.skippedLowConfidence}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : tab === "training" ? (
+        <section className="surface rounded-xl p-5 md:p-6">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-[family-name:var(--font-display)] text-2xl">
+                Training from past entries
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-soft/75">
+                Pulls already-categorized purchases and deposits from QuickBooks
+                and learns merchant → account mappings. Those patterns drive the
+                morning job.
+              </p>
+            </div>
+            <button
+              onClick={() => void trainFromHistory()}
+              disabled={busy === "train"}
+              className="rounded-md bg-sage px-4 py-2 text-sm font-semibold text-paper"
+            >
+              {busy === "train" ? "Training…" : "Retrain now"}
+            </button>
+          </div>
+
+          {model ? (
+            <>
+              <div className="mb-5 grid gap-3 md:grid-cols-3">
+                <Stat
+                  label="Past entries"
+                  value={String(model.categorizedCount)}
+                />
+                <Stat label="Patterns" value={String(model.patternCount)} />
+                <Stat
+                  label="Last trained"
+                  value={formatWhen(model.trainedAt)}
+                  detail={`${model.historyStartDate} → ${model.historyEndDate}`}
+                />
+              </div>
+              <div className="overflow-hidden rounded-lg border border-[var(--line)]">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-paper-deep/60 text-xs tracking-wide text-ink-soft uppercase">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Match</th>
+                      <th className="px-4 py-3 text-left">Kind</th>
+                      <th className="px-4 py-3 text-left">Account</th>
+                      <th className="px-4 py-3 text-left">Support</th>
+                      <th className="px-4 py-3 text-left">Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.patterns.slice(0, 40).map((p) => (
+                      <tr
+                        key={p.id}
+                        className="border-t border-[var(--line)]"
+                      >
+                        <td className="px-4 py-3 font-medium">{p.displayKey}</td>
+                        <td className="px-4 py-3 capitalize">{p.kind}</td>
+                        <td className="px-4 py-3">{p.accountName}</td>
+                        <td className="px-4 py-3">{p.support}</td>
+                        <td className="px-4 py-3">
+                          {Math.round(p.confidence * 100)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink-soft/70">
+              No training model yet. Click <strong>Retrain now</strong> after
+              connecting QuickBooks (or use demo history).
+            </p>
+          )}
         </section>
       ) : tab === "pnl" ? (
         <section className="surface rounded-xl p-5 md:p-6">
@@ -548,6 +940,7 @@ export default function Dashboard() {
                 <Stat
                   label="Net income"
                   value={money(report.netIncome, report.currency)}
+                  detail={monthLabel(year, month)}
                 />
               </div>
               <div className="overflow-hidden rounded-lg border border-[var(--line)]">
@@ -583,8 +976,7 @@ export default function Dashboard() {
                 Categorization rules
               </h2>
               <p className="text-sm text-ink-soft/75">
-                Patterns match vendor or description text, then map to a chart
-                of accounts category.
+                Fallback patterns when training has not seen a merchant yet.
               </p>
             </div>
             <button
@@ -650,10 +1042,13 @@ export default function Dashboard() {
       )}
 
       <footer className="mt-10 text-sm text-ink-soft/65">
-        Setup: create an Intuit Developer app, set{" "}
+        QuickBooks Online uses OAuth (not username/password). Create an Intuit
+        Developer app, set{" "}
         <code className="rounded bg-white/60 px-1">QBO_CLIENT_ID</code> /{" "}
-        <code className="rounded bg-white/60 px-1">QBO_CLIENT_SECRET</code>, then
-        connect. Demo mode works without credentials.
+        <code className="rounded bg-white/60 px-1">QBO_CLIENT_SECRET</code>,
+        connect once, then schedule the morning job with{" "}
+        <code className="rounded bg-white/60 px-1">CRON_SECRET</code>. Demo mode
+        works without credentials.
       </footer>
     </main>
   );

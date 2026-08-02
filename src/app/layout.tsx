@@ -15,9 +15,9 @@ const body = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Accountant — QuickBooks Auto-Categorization & P&L",
+  title: "Accountant — QuickBooks Morning Categorization",
   description:
-    "Connect QuickBooks Online, auto-categorize transactions, and generate monthly profit & loss reports.",
+    "Connect QuickBooks Online, train on past entries, and auto-categorize uncategorized transactions each morning.",
 };
 
 export default function RootLayout({

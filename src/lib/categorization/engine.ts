@@ -3,7 +3,9 @@ import type {
   CategorySuggestion,
   NormalizedTransaction,
   QboAccount,
+  TrainingModel,
 } from "@/lib/qbo/types";
+import { matchTrainingPattern } from "@/lib/categorization/trainer";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -35,6 +37,7 @@ export function suggestCategories(
   transactions: NormalizedTransaction[],
   rules: CategorizationRule[],
   accounts: QboAccount[],
+  trainingModel?: TrainingModel | null,
 ): CategorySuggestion[] {
   const enabledRules = [...rules]
     .filter((r) => r.enabled)
@@ -46,6 +49,26 @@ export function suggestCategories(
   for (const txn of transactions) {
     if (!txn.isUncategorized) continue;
 
+    // 1) Past books win: learned mappings from previously categorized entries.
+    const trained = matchTrainingPattern(txn, trainingModel ?? null);
+    if (trained) {
+      const account = accountById.get(trained.accountId);
+      // Blend empirical support into confidence; floor at pattern confidence.
+      const supportBoost = Math.min(0.08, trained.support * 0.01);
+      suggestions.push({
+        transactionId: txn.id,
+        accountId: trained.accountId,
+        accountName: account?.Name ?? trained.accountName,
+        confidence: Math.min(0.98, trained.confidence + supportBoost),
+        ruleId: trained.id,
+        ruleLabel: `Learned: ${trained.displayKey}`,
+        reason: `Learned from ${trained.support} past ${trained.kind} match${trained.support === 1 ? "" : "es"} → ${trained.accountName}`,
+        source: "training",
+      });
+      continue;
+    }
+
+    // 2) Explicit user rules.
     const matched = enabledRules.find((rule) => matchesRule(txn, rule));
     if (matched) {
       const account = accountById.get(matched.accountId);
@@ -57,10 +80,12 @@ export function suggestCategories(
         ruleId: matched.id,
         ruleLabel: matched.label,
         reason: `Matched rule “${matched.label}”`,
+        source: "rule",
       });
       continue;
     }
 
+    // 3) Generic merchant heuristics as a last resort.
     const heuristic = heuristicSuggest(txn, accounts);
     if (heuristic) suggestions.push(heuristic);
   }
@@ -118,6 +143,7 @@ function heuristicSuggest(
       ruleId: null,
       ruleLabel: null,
       reason: `Heuristic match for ${account.Name}`,
+      source: "heuristic",
     };
   }
 
