@@ -149,9 +149,30 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [statusRes, txnRes, rulesRes, pnlRes, trainRes, morningRes] =
+      // Always load connection status first so the Connect button shows even
+      // before QuickBooks OAuth has been completed.
+      const statusRes = await fetch("/api/auth/status");
+      const statusJson = await statusRes.json();
+      if (!statusRes.ok) throw new Error(statusJson.error ?? "Status failed");
+      setStatus(statusJson);
+
+      if (!statusJson.connected && !statusJson.demoMode) {
+        setTransactions([]);
+        setRules([]);
+        setReport(null);
+        setModel(null);
+        setMorning(null);
+        setRuns([]);
+        setMessage(
+          statusJson.qboConfigured
+            ? "Credentials are ready. Click Connect QuickBooks to authorize your company."
+            : "Add your Intuit Client ID and Secret, then connect QuickBooks.",
+        );
+        return;
+      }
+
+      const [txnRes, rulesRes, pnlRes, trainRes, morningRes] =
         await Promise.all([
-          fetch("/api/auth/status"),
           fetch("/api/transactions?uncategorized=1"),
           fetch("/api/rules"),
           fetch(`/api/reports/pnl?year=${year}&month=${month}`),
@@ -159,21 +180,18 @@ export default function Dashboard() {
           fetch("/api/morning"),
         ]);
 
-      const statusJson = await statusRes.json();
       const txnJson = await txnRes.json();
       const rulesJson = await rulesRes.json();
       const pnlJson = await pnlRes.json();
       const trainJson = await trainRes.json();
       const morningJson = await morningRes.json();
 
-      if (!statusRes.ok) throw new Error(statusJson.error ?? "Status failed");
       if (!txnRes.ok) throw new Error(txnJson.error ?? "Transactions failed");
       if (!rulesRes.ok) throw new Error(rulesJson.error ?? "Rules failed");
       if (!pnlRes.ok) throw new Error(pnlJson.error ?? "P&L failed");
       if (!trainRes.ok) throw new Error(trainJson.error ?? "Training failed");
       if (!morningRes.ok) throw new Error(morningJson.error ?? "Morning failed");
 
-      setStatus(statusJson);
       setTransactions(txnJson.transactions ?? []);
       setRules(rulesJson.rules ?? []);
       setReport(pnlJson.report ?? null);
@@ -440,14 +458,7 @@ export default function Dashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {!status?.qboConfigured ? (
-            <button
-              onClick={() => setShowSetup(true)}
-              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-ink-soft"
-            >
-              Add credentials
-            </button>
-          ) : status?.connected ? (
+          {status?.connected ? (
             <button
               onClick={() => void disconnect()}
               disabled={busy === "disconnect"}
@@ -455,13 +466,20 @@ export default function Dashboard() {
             >
               Disconnect QBO
             </button>
-          ) : (
+          ) : status?.qboConfigured ? (
             <a
               href="/api/auth/connect"
               className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-ink-soft"
             >
               Connect QuickBooks
             </a>
+          ) : (
+            <button
+              onClick={() => setShowSetup(true)}
+              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-ink-soft"
+            >
+              Add credentials
+            </button>
           )}
           <button
             onClick={() => void logout()}
@@ -508,13 +526,15 @@ export default function Dashboard() {
               ? "Live QBO"
               : status?.demoMode
                 ? "Demo mode"
-                : "Not connected"
+                : status?.qboConfigured
+                  ? "Ready to connect"
+                  : "Not configured"
           }
           detail={
             status?.connected
               ? `Company ${status.realmId}`
               : status?.qboConfigured
-                ? `${status.environment} ready`
+                ? `${status.environment} credentials loaded — click Connect QuickBooks`
                 : "Add Intuit app credentials"
           }
         />
