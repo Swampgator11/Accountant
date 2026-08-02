@@ -10,6 +10,12 @@ Connect **QuickBooks Online**, learn categories from your past books, and auto-c
 4. **Morning job** finds uncategorized entries and writes high-confidence categories back
 5. Monthly **Profit & Loss** from the QBO Reports API
 
+## Live app
+
+- URL: https://accountant-tau-self.vercel.app
+- Login: use the email/password configured in Vercel (`AUTH_EMAIL` / `AUTH_PASSWORD`)
+- Intuit Redirect URI: `https://accountant-tau-self.vercel.app/api/auth/callback`
+
 ## Deploy on Vercel (recommended)
 
 ```bash
