@@ -10,7 +10,10 @@ import {
 } from "@/lib/storage/store";
 import type { TokenSet } from "@/lib/qbo/types";
 
-export async function createAuthorizationUrl(baseUrl?: string): Promise<string> {
+export async function createAuthorizationUrl(baseUrl?: string): Promise<{
+  url: string;
+  state: string;
+}> {
   const config = await getConfig({ baseUrl });
   if (!config.qboConfigured) {
     throw new Error(
@@ -29,7 +32,10 @@ export async function createAuthorizationUrl(baseUrl?: string): Promise<string> 
     state,
   });
 
-  return `${config.authBaseUrl}?${params.toString()}`;
+  return {
+    url: `${config.authBaseUrl}?${params.toString()}`,
+    state,
+  };
 }
 
 async function exchangeToken(

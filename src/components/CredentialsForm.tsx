@@ -134,9 +134,10 @@ export default function CredentialsForm({
           </code>
           <a
             href="/api/auth/connect"
-            className="mt-4 inline-flex rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-paper hover:bg-ink-soft"
+            className="btn-connect mt-4 inline-flex items-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold"
           >
-            Connect QuickBooks
+            Sign in with Intuit
+            <span aria-hidden="true">→</span>
           </a>
         </div>
       ) : null}

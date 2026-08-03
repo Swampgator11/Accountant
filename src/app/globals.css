@@ -43,15 +43,32 @@ body {
   font-family: var(--font-body), "Segoe UI", sans-serif;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/*
+ * Put element defaults in @layer base so Tailwind utilities (e.g. text-white
+ * on the Connect QuickBooks link) win. An unlayered `a { color: inherit }`
+ * previously overrode utilities and made the dark Connect button look blank.
+ */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
 }
 
-button,
-input,
-select {
-  font: inherit;
+/* Primary link-button: color set outside utilities so it cannot go invisible. */
+a.btn-connect {
+  color: #ffffff !important;
+  background: #0d2a2e;
+  text-decoration: none;
+}
+a.btn-connect:hover {
+  background: #1d4348;
 }
 
 ::selection {

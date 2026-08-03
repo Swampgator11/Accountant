@@ -42,6 +42,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Browser click on Connect should bounce to login, not a raw JSON 401 page
+  // (which looks like the button "did nothing").
+  if (pathname === "/api/auth/connect") {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    return NextResponse.redirect(loginUrl);
+  }
+
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

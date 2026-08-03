@@ -165,7 +165,7 @@ export default function Dashboard() {
         setRuns([]);
         setMessage(
           statusJson.qboConfigured
-            ? "Credentials are ready. Click Connect QuickBooks to authorize your company."
+            ? "Credentials are ready. Click Sign in with Intuit to authorize your company."
             : "Add your Intuit Client ID and Secret, then connect QuickBooks.",
         );
         return;
@@ -513,9 +513,10 @@ export default function Dashboard() {
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <a
                 href="/api/auth/connect"
-                className="inline-flex rounded-md bg-[#0d2a2e] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1d4348]"
+                className="btn-connect inline-flex items-center gap-2 rounded-md px-5 py-3 text-sm font-semibold shadow-sm"
               >
-                Connect QuickBooks
+                Sign in with Intuit
+                <span aria-hidden="true">→</span>
               </a>
               <button
                 onClick={() => setShowSetup(true)}
@@ -535,12 +536,39 @@ export default function Dashboard() {
             </div>
           )}
           {status?.redirectUri ? (
-            <p className="mt-4 text-xs text-ink-soft/70">
-              Intuit Redirect URI must be:{" "}
-              <code className="rounded bg-white/70 px-1.5 py-0.5">
-                {status.redirectUri}
-              </code>
-            </p>
+            <div className="mt-5 space-y-2 text-xs text-ink-soft/80">
+              <p>
+                Intuit Redirect URI must be exactly:{" "}
+                <code className="rounded bg-white/70 px-1.5 py-0.5 text-[11px]">
+                  {status.redirectUri}
+                </code>
+              </p>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>
+                  In Intuit Developer → your app →{" "}
+                  <strong>Keys &amp; credentials</strong> → Redirect URIs, add
+                  the URI above (not only Host domain / Launch / Disconnect).
+                </li>
+                <li>
+                  Use{" "}
+                  <strong>
+                    {status.environment === "sandbox"
+                      ? "Development"
+                      : "Production"}
+                  </strong>{" "}
+                  keys to match this app&apos;s{" "}
+                  <strong>{status.environment}</strong> setting.
+                </li>
+                <li>
+                  Give the Intuit app a display name (blank names show as
+                  &quot;undefined didn&apos;t connect&quot;).
+                </li>
+                <li>
+                  Click <strong>Sign in with Intuit</strong> above and approve
+                  access for your company.
+                </li>
+              </ol>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -553,7 +581,7 @@ export default function Dashboard() {
             environment={status?.environment}
             onSaved={() => {
               setMessage(
-                "Credentials saved. Click Connect QuickBooks to authorize your company.",
+                "Credentials saved. Click Sign in with Intuit to authorize your company.",
               );
               setShowSetup(false);
               void refresh();
@@ -1153,7 +1181,7 @@ export default function Dashboard() {
       <footer className="mt-10 text-sm text-ink-soft/65">
         Paste your Intuit Client ID / Secret on the credentials screen, add the
         shown Redirect URI in your Intuit app, then click{" "}
-        <strong>Connect QuickBooks</strong>. On Vercel, morning runs via the
+        <strong>Sign in with Intuit</strong>. On Vercel, morning runs via the
         scheduled cron job.
       </footer>
     </main>
