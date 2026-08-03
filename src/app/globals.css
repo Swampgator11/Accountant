@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #0d2a2e;
+  --ink-soft: #1d4348;
+  --paper: #edf3f5;
+  --paper-deep: #d9e5e9;
+  --sage: #1f6f78;
+  --sage-bright: #278690;
+  --copper: #2a5f8f;
+  --line: rgba(13, 42, 46, 0.12);
+  --shadow: 0 18px 50px rgba(13, 42, 46, 0.12);
+}
+
+@theme inline {
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-paper: var(--paper);
+  --color-paper-deep: var(--paper-deep);
+  --color-sage: var(--sage);
+  --color-sage-bright: var(--sage-bright);
+  --color-copper: var(--copper);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(1100px 560px at 8% -8%, rgba(31, 111, 120, 0.18), transparent 55%),
+    radial-gradient(900px 480px at 100% 0%, rgba(42, 95, 143, 0.14), transparent 48%),
+    linear-gradient(180deg, #f4f8fa 0%, var(--paper) 42%, #dde8ec 100%);
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+}
+
+/*
+ * Put element defaults in @layer base so Tailwind utilities (e.g. text-white
+ * on the Connect QuickBooks link) win. An unlayered `a { color: inherit }`
+ * previously overrode utilities and made the dark Connect button look blank.
+ */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+}
+
+/* Primary link-button: color set outside utilities so it cannot go invisible. */
+a.btn-connect {
+  color: #ffffff !important;
+  background: #0d2a2e;
+  text-decoration: none;
+}
+a.btn-connect:hover {
+  background: #1d4348;
+}
+
+::selection {
+  background: rgba(31, 111, 120, 0.22);
+}
+
+.surface {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(10px);
+}
+
+.money-pos {
+  color: var(--sage);
+}
+
+.money-neg {
+  color: var(--copper);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-line {
+  0%,
+  100% {
+    transform: scaleX(0.35);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.55s ease both;
+}
+
+.animate-rise-delay {
+  animation: rise-in 0.7s ease 0.12s both;
+}
+
+.brand-underline {
+  transform-origin: left center;
+  animation: pulse-line 2.8s ease-in-out infinite;
+}
