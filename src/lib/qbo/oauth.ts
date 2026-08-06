@@ -9,6 +9,11 @@ import {
   saveTokens,
 } from "@/lib/storage/store";
 import type { TokenSet } from "@/lib/qbo/types";
+import { unsealJson } from "@/lib/storage/crypto";
+
+type CookieReader = {
+  get: (name: string) => { value: string } | undefined;
+};
 
 export async function createAuthorizationUrl(baseUrl?: string): Promise<{
   url: string;
@@ -79,13 +84,40 @@ async function exchangeToken(
   };
 }
 
+async function readStateFromRequestCookies(
+  requestCookies?: CookieReader,
+): Promise<string | null> {
+  if (!requestCookies) return null;
+
+  const single = requestCookies.get("aa_oauth")?.value;
+  if (single) {
+    const data = await unsealJson<{ state?: string }>(single);
+    if (data?.state) return data.state;
+  }
+
+  const count = Number(requestCookies.get("aa_oauth_n")?.value ?? 0);
+  if (!count) return null;
+  let combined = "";
+  for (let i = 0; i < count; i++) {
+    const part = requestCookies.get(`aa_oauth_${i}`)?.value;
+    if (!part) return null;
+    combined += part;
+  }
+  const data = await unsealJson<{ state?: string }>(combined);
+  return data?.state ?? null;
+}
+
 export async function handleOAuthCallback(params: {
   code: string;
   state: string;
   realmId: string;
   baseUrl?: string;
+  requestCookies?: CookieReader;
 }): Promise<TokenSet> {
-  const savedState = await getOAuthState();
+  const savedState =
+    (await readStateFromRequestCookies(params.requestCookies)) ||
+    (await getOAuthState());
+
   if (!savedState || savedState !== params.state) {
     throw new Error("Invalid OAuth state. Please try connecting again.");
   }
@@ -100,13 +132,10 @@ export async function handleOAuthCallback(params: {
     params.baseUrl,
   );
 
-  const saved: TokenSet = {
+  return {
     ...tokens,
     realmId: params.realmId,
   };
-  await saveTokens(saved);
-  await clearOAuthState();
-  return saved;
 }
 
 export async function refreshAccessToken(existing: TokenSet): Promise<TokenSet> {

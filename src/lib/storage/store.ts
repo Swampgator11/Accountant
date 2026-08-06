@@ -12,10 +12,20 @@ import type {
   TrainingModel,
 } from "@/lib/qbo/types";
 
+type CookieSetter = {
+  set: (
+    ...args:
+      | [name: string, value: string, options?: Record<string, unknown>]
+      | [options: { name: string; value: string } & Record<string, unknown>]
+  ) => unknown;
+};
+
 const DATA_DIR = path.join(process.cwd(), ".data");
 const MAX_RUN_LOGS = 20;
 const COOKIE_PREFIX = "aa_";
 const BLOB_PREFIX = "accountant/";
+/** Stay under typical 4KB browser cookie limits after sealing. */
+const COOKIE_CHUNK_SIZE = 2800;
 
 type StoreKey =
   | "credentials"
@@ -46,6 +56,16 @@ function blobPath(key: StoreKey): string {
 
 function hasBlob(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+function cookieOptions(maxAge = 60 * 60 * 24 * 180) {
+  return {
+    httpOnly: true,
+    secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+  };
 }
 
 async function canUseFilesystem(): Promise<boolean> {
@@ -121,10 +141,31 @@ async function deleteBlob(key: StoreKey): Promise<void> {
   }
 }
 
+function readChunkedFromJar(
+  jar: Awaited<ReturnType<typeof cookies>>,
+  key: StoreKey,
+): string | null {
+  const base = COOKIE_NAMES[key];
+  const single = jar.get(base)?.value;
+  if (single) return single;
+
+  const countRaw = jar.get(`${base}_n`)?.value;
+  const count = Number(countRaw ?? 0);
+  if (!count || Number.isNaN(count)) return null;
+
+  let combined = "";
+  for (let i = 0; i < count; i++) {
+    const part = jar.get(`${base}_${i}`)?.value;
+    if (!part) return null;
+    combined += part;
+  }
+  return combined;
+}
+
 async function readCookieJson<T>(key: StoreKey, fallback: T): Promise<T> {
   try {
     const jar = await cookies();
-    const raw = jar.get(COOKIE_NAMES[key])?.value;
+    const raw = readChunkedFromJar(jar, key);
     if (!raw) return fallback;
     const value = await unsealJson<T>(raw);
     return value ?? fallback;
@@ -133,27 +174,97 @@ async function readCookieJson<T>(key: StoreKey, fallback: T): Promise<T> {
   }
 }
 
-async function writeCookieJson<T>(key: StoreKey, value: T): Promise<void> {
+function applyChunkedCookie(
+  target: CookieSetter,
+  key: StoreKey,
+  sealed: string,
+  maxAge?: number,
+) {
+  const base = COOKIE_NAMES[key];
+  const opts = cookieOptions(maxAge);
+
+  // Clear any previous single/chunked values first.
+  target.set(base, "", { ...opts, maxAge: 0 });
+  target.set(`${base}_n`, "", { ...opts, maxAge: 0 });
+  for (let i = 0; i < 10; i++) {
+    target.set(`${base}_${i}`, "", { ...opts, maxAge: 0 });
+  }
+
+  if (sealed.length <= COOKIE_CHUNK_SIZE) {
+    target.set(base, sealed, opts);
+    return;
+  }
+
+  const chunks: string[] = [];
+  for (let i = 0; i < sealed.length; i += COOKIE_CHUNK_SIZE) {
+    chunks.push(sealed.slice(i, i + COOKIE_CHUNK_SIZE));
+  }
+  target.set(`${base}_n`, String(chunks.length), opts);
+  chunks.forEach((chunk, index) => {
+    target.set(`${base}_${index}`, chunk, opts);
+  });
+}
+
+async function writeCookieJson<T>(
+  key: StoreKey,
+  value: T,
+  responseCookies?: CookieSetter,
+): Promise<void> {
+  const sealed = await sealJson(value);
+  if (responseCookies) {
+    applyChunkedCookie(responseCookies, key, sealed);
+    return;
+  }
+
   try {
     const jar = await cookies();
-    const sealed = await sealJson(value);
-    jar.set(COOKIE_NAMES[key], sealed, {
-      httpOnly: true,
-      secure:
-        process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 180,
+    // next/headers cookies() supports set() with the same options.
+    const opts = cookieOptions();
+    const base = COOKIE_NAMES[key];
+    jar.set(base, "", { ...opts, maxAge: 0 });
+    jar.set(`${base}_n`, "", { ...opts, maxAge: 0 });
+    for (let i = 0; i < 10; i++) {
+      jar.set(`${base}_${i}`, "", { ...opts, maxAge: 0 });
+    }
+
+    if (sealed.length <= COOKIE_CHUNK_SIZE) {
+      jar.set(base, sealed, opts);
+      return;
+    }
+    const chunks: string[] = [];
+    for (let i = 0; i < sealed.length; i += COOKIE_CHUNK_SIZE) {
+      chunks.push(sealed.slice(i, i + COOKIE_CHUNK_SIZE));
+    }
+    jar.set(`${base}_n`, String(chunks.length), opts);
+    chunks.forEach((chunk, index) => {
+      jar.set(`${base}_${index}`, chunk, opts);
     });
   } catch {
-    // cookies() unavailable outside request scope (e.g. some cron contexts)
+    // cookies() unavailable outside request scope
   }
 }
 
-async function deleteCookie(key: StoreKey): Promise<void> {
+async function deleteCookie(
+  key: StoreKey,
+  responseCookies?: CookieSetter,
+): Promise<void> {
+  const base = COOKIE_NAMES[key];
+  const opts = { ...cookieOptions(), maxAge: 0 };
+  if (responseCookies) {
+    responseCookies.set(base, "", opts);
+    responseCookies.set(`${base}_n`, "", opts);
+    for (let i = 0; i < 10; i++) {
+      responseCookies.set(`${base}_${i}`, "", opts);
+    }
+    return;
+  }
   try {
     const jar = await cookies();
-    jar.delete(COOKIE_NAMES[key]);
+    jar.set(base, "", opts);
+    jar.set(`${base}_n`, "", opts);
+    for (let i = 0; i < 10; i++) {
+      jar.set(`${base}_${i}`, "", opts);
+    }
   } catch {
     // ignore
   }
@@ -164,28 +275,34 @@ async function readJson<T>(key: StoreKey, fallback: T): Promise<T> {
     return readFileJson(key, fallback);
   }
 
-  // Prefer durable blob (works for Vercel Cron), then cookies (browser session).
   const fromBlob = await readBlobJson<T | null>(key, null);
   if (fromBlob !== null && fromBlob !== undefined) return fromBlob;
 
   return readCookieJson(key, fallback);
 }
 
-async function writeJson<T>(key: StoreKey, value: T): Promise<void> {
+async function writeJson<T>(
+  key: StoreKey,
+  value: T,
+  responseCookies?: CookieSetter,
+): Promise<void> {
   if (await canUseFilesystem()) {
     await writeFileJson(key, value);
     return;
   }
   await writeBlobJson(key, value);
-  await writeCookieJson(key, value);
+  await writeCookieJson(key, value, responseCookies);
 }
 
-async function clearKey(key: StoreKey): Promise<void> {
+async function clearKey(
+  key: StoreKey,
+  responseCookies?: CookieSetter,
+): Promise<void> {
   if (await canUseFilesystem()) {
     await deleteFile(key);
   }
   await deleteBlob(key);
-  await deleteCookie(key);
+  await deleteCookie(key, responseCookies);
 }
 
 export async function getCredentials(): Promise<StoredCredentials | null> {
@@ -206,12 +323,17 @@ export async function getTokens(): Promise<TokenSet | null> {
   return readJson<TokenSet | null>("tokens", null);
 }
 
-export async function saveTokens(tokens: TokenSet): Promise<void> {
-  await writeJson("tokens", tokens);
+export async function saveTokens(
+  tokens: TokenSet,
+  responseCookies?: CookieSetter,
+): Promise<void> {
+  await writeJson("tokens", tokens, responseCookies);
 }
 
-export async function clearTokens(): Promise<void> {
-  await clearKey("tokens");
+export async function clearTokens(
+  responseCookies?: CookieSetter,
+): Promise<void> {
+  await clearKey("tokens", responseCookies);
 }
 
 export async function getOAuthState(): Promise<string | null> {
@@ -219,12 +341,21 @@ export async function getOAuthState(): Promise<string | null> {
   return data.state ?? null;
 }
 
-export async function saveOAuthState(state: string): Promise<void> {
-  await writeJson("oauth-state", { state, createdAt: Date.now() });
+export async function saveOAuthState(
+  state: string,
+  responseCookies?: CookieSetter,
+): Promise<void> {
+  await writeJson(
+    "oauth-state",
+    { state, createdAt: Date.now() },
+    responseCookies,
+  );
 }
 
-export async function clearOAuthState(): Promise<void> {
-  await clearKey("oauth-state");
+export async function clearOAuthState(
+  responseCookies?: CookieSetter,
+): Promise<void> {
+  await clearKey("oauth-state", responseCookies);
 }
 
 export async function getRules(): Promise<CategorizationRule[]> {

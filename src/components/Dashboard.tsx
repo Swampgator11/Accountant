@@ -208,10 +208,14 @@ export default function Dashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("connected") === "1") {
-      setMessage("QuickBooks Online connected. Train on past entries, then enable the morning job.");
+      setMessage(
+        "QuickBooks Online connected. Train on past entries, then enable the morning job.",
+      );
+      window.history.replaceState({}, "", "/");
     }
     if (params.get("error")) {
       setError(params.get("error"));
+      window.history.replaceState({}, "", "/");
     }
     if (params.get("setup") === "1") {
       setShowSetup(true);
@@ -509,6 +513,11 @@ export default function Dashboard() {
               ? "Credentials are loaded. Click below to sign in with Intuit and approve access for your company."
               : "Paste your Intuit Client ID and Client Secret, then authorize QuickBooks."}
           </p>
+          {error ? (
+            <div className="mt-4 rounded-md border border-copper/30 bg-copper/10 px-4 py-3 text-sm text-copper">
+              {error}
+            </div>
+          ) : null}
           {status?.qboConfigured ? (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <a
@@ -635,7 +644,7 @@ export default function Dashboard() {
         />
       </section>
 
-      {(message || error) && status?.connected ? (
+      {(message || error) && (status?.connected || status?.demoMode) ? (
         <div
           className={`mb-5 rounded-md border px-4 py-3 text-sm ${
             error
